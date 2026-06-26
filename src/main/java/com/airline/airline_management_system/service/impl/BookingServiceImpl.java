@@ -12,10 +12,14 @@ import com.airline.airline_management_system.exception.ResourceNotFoundException
 import com.airline.airline_management_system.exception.UnauthorizedException;
 import com.airline.airline_management_system.repository.*;
 import com.airline.airline_management_system.service.BookingService;
+import com.airline.airline_management_system.service.EmailService;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import com.airline.airline_management_system.entity.Payment;
+import com.airline.airline_management_system.enums.PaymentStatus;
+import java.util.UUID;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -36,6 +40,9 @@ public class BookingServiceImpl implements BookingService {
     private final SeatRepository seatRepository;
     private final FlightRepository flightRepository;
     private final UserRepository userRepository;
+    private final PaymentRepository paymentRepository;
+    private final EmailService emailService;
+    private final AuditLogRepository auditLogRepository;
 
     @Override
     public BookingResponse holdSeats(String userEmail, BookingHoldRequest request) {
@@ -116,6 +123,28 @@ public class BookingServiceImpl implements BookingService {
         }
 
         Booking updated = bookingRepository.save(booking);
+
+// Create payment record (mock - always succeeds for demo)
+        Payment payment = new Payment();
+        payment.setBooking(updated);
+        payment.setAmount(updated.getTotalAmount());
+        payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setTransactionId("TXN" + UUID.randomUUID().toString().substring(0, 12).toUpperCase());
+        payment.setPaymentTime(LocalDateTime.now());
+        paymentRepository.save(payment);
+
+        emailService.sendBookingConfirmation(
+                booking.getUser().getEmail(),
+                booking.getUser().getName(),
+                booking.getPnr(),
+                booking.getFlight().getFlightNumber()
+        );
+        AuditLog log = new AuditLog();
+        log.setUserEmail(userEmail);
+        log.setAction("CONFIRM_BOOKING");
+        log.setEntity("Booking:" + booking.getId());
+        auditLogRepository.save(log);
+
         return toResponse(updated);
     }
 
